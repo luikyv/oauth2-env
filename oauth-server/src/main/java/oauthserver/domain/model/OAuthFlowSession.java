@@ -1,8 +1,8 @@
 package oauthserver.domain.model;
 
 import lombok.*;
-import oauthserver.constants.CodeChallengeMethod;
-import oauthserver.constants.Scope;
+import oauthserver.enumerations.CodeChallengeMethod;
+import oauthserver.enumerations.Scope;
 
 import javax.persistence.*;
 import java.util.List;
@@ -13,7 +13,7 @@ import java.util.List;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public class OAuthFlowCache {
+public class OAuthFlowSession {
     @Id
     @GeneratedValue
     private Long id;

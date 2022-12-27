@@ -1,4 +1,4 @@
-package oauthserver.constants;
+package oauthserver.enumerations;
 
 public enum Scope {
     read, write

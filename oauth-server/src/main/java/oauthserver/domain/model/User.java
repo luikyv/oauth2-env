@@ -24,5 +24,5 @@ public class User {
     private String hashedPassword;
 
     @OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
-    private Set<OAuthFlowCache> oauthFlows;
+    private Set<OAuthFlowSession> oauthFlows;
 }

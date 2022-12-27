@@ -1,18 +1,14 @@
 package oauthserver.domain.payload;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-import oauthserver.constants.TokenType;
-
-import java.util.List;
+import lombok.*;
+import oauthserver.enumerations.TokenType;
 
 @AllArgsConstructor
 @NoArgsConstructor
 @Setter
 @Getter
+@Builder
 public class AccessTokenResponse {
 
     @JsonProperty("access_token")
@@ -22,10 +18,10 @@ public class AccessTokenResponse {
     private TokenType tokenType;
 
     @JsonProperty("expires_in")
-    private Long expiresIn;
+    private Integer expiresIn;
 
-    @JsonProperty("refresh_token")
-    private String refreshToken;
+//    @JsonProperty("refresh_token")
+//    private String refreshToken;
 
-    private List<String> scopes;
+    private String scope;
 }
