@@ -26,7 +26,7 @@ public class OauthServerApplication implements CommandLineRunner {
 	@Override
 	public void run(String... args) {
 		this.userService.createUser(
-				User.builder().username("admin").build(),
+				User.builder().username("admin@email.com").name("admin").build(),
 				"1234"
 		);
 	}

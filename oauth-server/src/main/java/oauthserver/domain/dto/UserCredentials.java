@@ -1,4 +1,4 @@
-package oauthserver.domain.payload;
+package oauthserver.domain.dto;
 
 import lombok.Getter;
 import lombok.Setter;

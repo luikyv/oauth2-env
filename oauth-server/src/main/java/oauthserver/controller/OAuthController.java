@@ -5,22 +5,22 @@ import lombok.AllArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import oauthserver.configuration.Config;
-import oauthserver.enumerations.CodeChallengeMethod;
-import oauthserver.enumerations.GrantType;
-import oauthserver.enumerations.ResponseType;
-import oauthserver.enumerations.Scope;
+import oauthserver.domain.dto.AccessTokenInfoResponse;
+import oauthserver.enumerations.*;
 import oauthserver.domain.model.Client;
 import oauthserver.domain.model.User;
-import oauthserver.domain.payload.AccessTokenResponse;
-import oauthserver.domain.payload.ClientPayload;
+import oauthserver.domain.dto.AccessTokenResponse;
+import oauthserver.domain.dto.ClientDTO;
 import oauthserver.domain.model.OAuthFlowSession;
-import oauthserver.domain.payload.UserCredentials;
+import oauthserver.domain.dto.UserCredentials;
 import oauthserver.service.*;
 import oauthserver.service.exceptions.ClientNotFoundException;
 import oauthserver.service.exceptions.OAuthFlowCacheRecordNotFoundException;
 import oauthserver.service.exceptions.UserNotFoundException;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.ui.ModelMap;
@@ -28,8 +28,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.ModelAndView;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.validation.Valid;
+import javax.validation.constraints.Size;
+import java.security.Principal;
 import java.util.List;
 
 @Controller
@@ -41,12 +44,11 @@ public class OAuthController {
     private final UserService userService;
     private final OAuthFlowSessionService oauthFlowSessionService;
     private final ClientService clientService;
-    private final PckeService pckeService;
     private final OAuthService oAuthService;
 
     @Operation(summary = "Register a client")
     @PostMapping("/client") @ResponseBody
-    public void createClient(@Valid @RequestBody ClientPayload client) {
+    public void createClient(@Valid @RequestBody ClientDTO client) {
         this.clientService.createClient(
                 Client
                         .builder()
@@ -82,7 +84,7 @@ public class OAuthController {
                     "errorMessage",
                     "The Client is not registered"
             );
-            return "error";
+            return ViewPage.ERROR_PAGE.getName();
         }
         log.info("Client with id {} was found", clientId);
         if(!client.getRedirectUri().equals(redirectUri)) {
@@ -91,7 +93,7 @@ public class OAuthController {
                     "errorMessage",
                     "The redirect uri doesn't match the one registered by the Client"
             );
-            return "error";
+            return ViewPage.ERROR_PAGE.getName();
         }
 
         // Create a cookie specific to the current flow
@@ -112,7 +114,7 @@ public class OAuthController {
                 .build();
         this.oauthFlowSessionService.saveFlowRecord(oauthFlowSession);
 
-        return "login";
+        return ViewPage.LOGIN_PAGE.getName();
     }
 
     @PostMapping("/signup")
@@ -123,7 +125,7 @@ public class OAuthController {
                 User.builder().username(userCredentials.getUsername()).build(),
                 userCredentials.getPassword()
         );
-        return "login";
+        return ViewPage.LOGIN_PAGE.getName();
     }
 
     @PostMapping("/login")
@@ -142,7 +144,7 @@ public class OAuthController {
                     "No cookie associated to the flow"
             );
             log.info("No flow cookie found");
-            return new ModelAndView("error", model);
+            return new ModelAndView(ViewPage.ERROR_PAGE.getName(), model);
         }
 
         // Check the user's credentials
@@ -151,14 +153,14 @@ public class OAuthController {
             areCredentialsValid = this.userService.validateCredentials(userCredentials);
         } catch (UserNotFoundException e) {
             log.info("The user: {} doesn't exist", userCredentials.getUsername());
-            return new ModelAndView("signup", model);
+            return new ModelAndView(ViewPage.SIGNUP_PAGE.getName(), model);
         }
         // Display the error to the user if his credentials are invalid
         // and let him try again
         if(!areCredentialsValid) {
             log.info("Invalid credentials");
             model.addAttribute("error", true);
-            return new ModelAndView("login", model);
+            return new ModelAndView(ViewPage.LOGIN_PAGE.getName(), model);
         }
 
         // Load information about the flow
@@ -171,7 +173,7 @@ public class OAuthController {
                     "errorMessage",
                     "No cookie associated to the flow"
             );
-            return new ModelAndView("error", model);
+            return new ModelAndView(ViewPage.ERROR_PAGE.getName(), model);
         }
 
         // Link user to the flow
@@ -210,7 +212,7 @@ public class OAuthController {
         // Validate PCKE
         boolean isChallengeValid = false;
         try {
-            isChallengeValid = this.pckeService.validatePckeSession(codeVerifier, code);
+            isChallengeValid = this.oAuthService.validatePckeSession(codeVerifier, code);
         } catch (OAuthFlowCacheRecordNotFoundException e) {
             log.info("Auth code doesn't exist");
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid code");
@@ -224,5 +226,26 @@ public class OAuthController {
         // Load the auth flow and return access token response
         OAuthFlowSession oAuthFlowSession = this.oauthFlowSessionService.getFlowRecordByAuthCode(code);
         return this.oAuthService.buildAccessTokenResponse(oAuthFlowSession);
+    }
+
+    @SneakyThrows
+    @PostMapping("/token_info")
+    public AccessTokenInfoResponse getAccessTokenInfo(
+            @RequestParam("token") String accessToken,
+            Principal principal
+    ) {
+        // TODO
+        Client client = clientService.getClient(principal.getName());
+
+        return new AccessTokenInfoResponse();
+    }
+
+    @Operation(summary = "Generate a code challenge by hashing the code verifier")
+    @GetMapping("/code_challenge") @ResponseBody
+    public String generatePckeCodeChallenge(
+            @RequestParam("code_verifier") @Size(min = 43, max = 128) String codeVerifier,
+            @RequestParam("code_challenge_method") CodeChallengeMethod codeChallengeMethod
+    ) {
+        return this.oAuthService.generateCodeChallenge(codeVerifier, codeChallengeMethod);
     }
 }

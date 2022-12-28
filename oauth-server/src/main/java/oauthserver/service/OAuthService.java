@@ -1,37 +1,30 @@
 package oauthserver.service;
 
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import oauthserver.configuration.Config;
-import oauthserver.enumerations.TokenType;
+import oauthserver.enumerations.CodeChallengeMethod;
 import oauthserver.domain.model.OAuthFlowSession;
-import oauthserver.domain.payload.AccessTokenResponse;
-import org.apache.commons.lang3.time.DateUtils;
-import org.springframework.beans.factory.annotation.Autowired;
+import oauthserver.domain.dto.AccessTokenResponse;
+import oauthserver.service.exceptions.OAuthFlowCacheRecordNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
-import java.nio.charset.StandardCharsets;
-import java.security.Key;
-import java.util.Date;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import java.util.*;
 
 @Service
 @Slf4j
+@AllArgsConstructor
 public class OAuthService {
 
     private final Config config;
-    private Key key;
+    private final OAuthFlowSessionService oAuthFlowSessionService;
 
-    @Autowired
-    public OAuthService(Config config) {
-        this.config = config;
-        key = Keys.hmacShaKeyFor(config.getSecretKey().getBytes(StandardCharsets.UTF_8));
-    }
+    private final TokenService tokenService;
+    private final PckeService pckeService;
+
 
     /**
      * Create a cookie to identify the oauth flow and return its id.
@@ -68,37 +61,40 @@ public class OAuthService {
                 .build().toUriString();
     }
 
+
     /**
-     * Build the oauth access token response based on the information of the current flow.
-     *
-     * @param oAuthFlowSession
-     *          Information about the oauth flow.
-     * @return the access token response.
+     * More info on oauthserver.service.TokenService::buildAccessTokenResponse
      */
     public AccessTokenResponse buildAccessTokenResponse(OAuthFlowSession oAuthFlowSession) {
-        // Create a String concatenating the names of the scope enums
-        String scope = oAuthFlowSession
-                .getScopes()
-                .stream()
-                .map(s -> s.name())
-                .collect(Collectors.joining(" ", "", ""));
+        return this.tokenService.buildAccessTokenResponse(oAuthFlowSession);
+    }
 
-        // Create and sign the jwt
-        String accessToken = Jwts
-                .builder()
-                .setSubject(oAuthFlowSession.getUser().getUsername())
-                .setAudience(oAuthFlowSession.getClient().getId())
-                .setExpiration(DateUtils.addSeconds(new Date(), Config.ACCESS_TOKEN_EXPIRE_TIME_DAYS))
-                .claim("scope", scope)
-                .signWith(this.key)
-                .compact();
+    /**
+     * This method will fetch the information about the current auth session and verify if the codeVerifier
+     * matches the codeChallenge.
+     *
+     * @param codeVerifier
+     *          Plain text code that will be compared to the codeChallenge provided by the client.
+     * @param authCode
+     *          Authorization code generated for the current session.
+     *          We use it to fetch the information about the session.
+     * @return a boolean indicating if the challenge was successful.
+     * @throws OAuthFlowCacheRecordNotFoundException
+     *          When the information about the session doesn't exist.
+     */
+    public boolean validatePckeSession(String codeVerifier, String authCode) throws OAuthFlowCacheRecordNotFoundException {
+        OAuthFlowSession oAuthFlowSession = oAuthFlowSessionService.getFlowRecordByAuthCode(authCode);
+        return this.pckeService.verifyChallenge(
+                codeVerifier,
+                oAuthFlowSession.getCodeChallenge(),
+                oAuthFlowSession.getCodeChallengeMethod()
+        );
+    }
 
-        return AccessTokenResponse
-                .builder()
-                .accessToken(accessToken)
-                .tokenType(TokenType.bearer)
-                .expiresIn(Config.ACCESS_TOKEN_EXPIRE_TIME_DAYS)
-                .scope(scope)
-                .build();
+    /**
+     * More info on oauthserver.service.PckeService::generateCodeChallenge.
+     */
+    public String generateCodeChallenge(String codeVerifier, CodeChallengeMethod codeChallengeMethod) {
+        return this.pckeService.generateCodeChallenge(codeVerifier, codeChallengeMethod);
     }
 }

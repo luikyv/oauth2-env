@@ -2,7 +2,7 @@ package oauthserver.service;
 
 import lombok.AllArgsConstructor;
 import oauthserver.domain.model.User;
-import oauthserver.domain.payload.UserCredentials;
+import oauthserver.domain.dto.UserCredentials;
 import oauthserver.repository.UserRepository;
 import oauthserver.service.exceptions.UserNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;

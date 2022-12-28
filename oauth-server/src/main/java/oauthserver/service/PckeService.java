@@ -17,7 +17,21 @@ import java.util.Base64;
 @AllArgsConstructor
 public class PckeService {
 
-    private final OAuthFlowSessionService oAuthFlowSessionService;
+
+    /**
+     * Generate the hash of <code>codeVerifier</code>.
+     *
+     * @param codeVerifier
+     *          Plain text code that will be hashed.
+     * @param codeChallengeMethod
+     *          Function to be used to hash the <code>codeChallenge</code>.
+     * @return Hash of <code>codeVerifier</code>.
+     */
+    public String generateCodeChallenge(String codeVerifier, CodeChallengeMethod codeChallengeMethod) {
+        byte[] hashedCodeVerifierBytes = codeChallengeMethod.getHashFunction()
+                .hashString(codeVerifier, StandardCharsets.UTF_8).asBytes();
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(hashedCodeVerifierBytes);
+    }
 
     /**
      * We verify if the hash of <code>codeVerifier</code> matches <code>codeChallenge</code>.
@@ -31,27 +45,6 @@ public class PckeService {
      * @return a boolean indicating if the challenge was successful.
      */
     public boolean verifyChallenge(String codeVerifier, String codeChallenge, CodeChallengeMethod codeChallengeMethod) {
-        byte[] hashedCodeVerifierBytes = codeChallengeMethod.getHashFunction()
-                .hashString(codeVerifier, StandardCharsets.UTF_8).asBytes();
-        String hashedCodeVerifier = Base64.getUrlEncoder().withoutPadding().encodeToString(hashedCodeVerifierBytes);
-        return hashedCodeVerifier.equals(codeChallenge);
-    }
-
-    /**
-     * This method will fetch the information about the current auth session and verify if the codeVerifier
-     * matches the codeChallenge.
-     *
-     * @param codeVerifier
-     *          Plain text code that will be compared to the codeChallenge provided by the client.
-     * @param authCode
-     *          Authorization code generated for the current session.
-     *          We use it to fetch the information about the session.
-     * @return a boolean indicating if the challenge was successful.
-     * @throws OAuthFlowCacheRecordNotFoundException
-     *          When the information about the session doesn't exist.
-     */
-    public boolean validatePckeSession(String codeVerifier, String authCode) throws OAuthFlowCacheRecordNotFoundException {
-        OAuthFlowSession oAuthFlowSession = oAuthFlowSessionService.getFlowRecordByAuthCode(authCode);
-        return verifyChallenge(codeVerifier, oAuthFlowSession.getCodeChallenge(), oAuthFlowSession.getCodeChallengeMethod());
+        return this.generateCodeChallenge(codeVerifier, codeChallengeMethod).equals(codeChallenge);
     }
 }

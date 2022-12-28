@@ -1,4 +1,4 @@
-package oauthserver.domain.payload;
+package oauthserver.domain.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -12,7 +12,7 @@ import javax.validation.constraints.NotNull;
 @AllArgsConstructor
 @Getter
 @Setter
-public class ClientPayload {
+public class ClientDTO {
     @JsonProperty("client_id")
     @NotBlank
     @NotNull
