@@ -5,6 +5,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 import oauthserver.enumerations.TokenType;
 
+/**
+ * Response to the token endpoint.
+ */
 @AllArgsConstructor
 @NoArgsConstructor
 @Setter

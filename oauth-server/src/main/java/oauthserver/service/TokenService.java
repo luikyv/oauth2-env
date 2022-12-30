@@ -1,10 +1,16 @@
 package oauthserver.service;
 
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import lombok.AllArgsConstructor;
-import oauthserver.configuration.Config;
+import oauthserver.configuration.Constant;
+import oauthserver.configuration.StringToScopeListConverter;
+import oauthserver.domain.dto.AccessTokenIntrospectionResponse;
 import oauthserver.domain.dto.AccessTokenResponse;
+import oauthserver.domain.dto.UserInfoResponse;
 import oauthserver.domain.model.OAuthFlowSession;
+import oauthserver.domain.model.User;
 import oauthserver.enumerations.Scope;
 import oauthserver.enumerations.TokenType;
 import org.apache.commons.lang3.time.DateUtils;
@@ -25,6 +31,7 @@ import java.util.stream.Collectors;
 public class TokenService {
 
     private final Key key;
+    private final StringToScopeListConverter stringToScopeListConverter;
 
     /**
      * Build a String from a list of scopes.
@@ -43,21 +50,22 @@ public class TokenService {
     /**
      * Create a map containing the user information request by the client.
      *
-     * @param oAuthFlowSession
-     *          It contains information about the oauth flow.
+     * @param scopes
+     *          Scopes consented by the user.
+     * @param user
+     *          User that granted the scopes.
      * @return
      *          A map containing information about the user based on the openid scopes
      *          requested by the client.
      */
-    private Map<String, Object> getOpenIdUserSpecificClaims(OAuthFlowSession oAuthFlowSession) {
-        List<Scope> scopes = oAuthFlowSession.getScopes();
+    public Map<String, Object> getOpenIdUserSpecificClaims(List<Scope> scopes, User user) {
         Map<String, Object> openIdClaims = new HashMap();
 
         if(scopes.contains(Scope.email)) {
-            openIdClaims.put("email", oAuthFlowSession.getUser().getUsername());
+            openIdClaims.put("email", user.getUsername());
         }
         if(scopes.contains(Scope.name)) {
-            openIdClaims.put("email", oAuthFlowSession.getUser().getName());
+            openIdClaims.put("name", user.getName());
         }
 
         return openIdClaims;
@@ -74,12 +82,12 @@ public class TokenService {
     private String buildIdToken(OAuthFlowSession oAuthFlowSession) {
 
         return Jwts.builder()
-                .setIssuer(Config.ISSUER_NAME)
+                .setIssuer(Constant.ISSUER_NAME)
                 .setSubject(oAuthFlowSession.getUser().getUsername())
                 .setAudience(oAuthFlowSession.getClient().getId())
                 .setIssuedAt(new Date())
-                .setExpiration(DateUtils.addSeconds(new Date(), Config.ID_TOKEN_EXPIRE_TIME_SECONDS))
-                .addClaims(this.getOpenIdUserSpecificClaims(oAuthFlowSession))
+                .setExpiration(DateUtils.addSeconds(new Date(), Constant.ID_TOKEN_EXPIRE_TIME_SECONDS))
+                .addClaims(this.getOpenIdUserSpecificClaims(oAuthFlowSession.getScopes(), oAuthFlowSession.getUser()))
                 .signWith(this.key) .compact();
     }
 
@@ -93,15 +101,16 @@ public class TokenService {
     public AccessTokenResponse buildAccessTokenResponse(OAuthFlowSession oAuthFlowSession) {
 
         List<Scope> scopes = oAuthFlowSession.getScopes();
-        String strScopes = this.stringfyScopes(oAuthFlowSession.getScopes());
+        String strScopes = stringfyScopes(scopes);
 
         // Create tokens
         String accessToken = Jwts
                 .builder()
+                .claim("client_id", oAuthFlowSession.getClient().getId())
                 .setSubject(oAuthFlowSession.getUser().getUsername())
-                .setIssuer(Config.ISSUER_NAME)
+                .setIssuer(Constant.ISSUER_NAME)
                 .setIssuedAt(new Date())
-                .setExpiration(DateUtils.addSeconds(new Date(), Config.ACCESS_TOKEN_EXPIRE_TIME_SECONDS))
+                .setExpiration(DateUtils.addSeconds(new Date(), Constant.ACCESS_TOKEN_EXPIRE_TIME_SECONDS))
                 .claim("scope", strScopes)
                 .signWith(this.key)
                 .compact();
@@ -113,8 +122,63 @@ public class TokenService {
                 .accessToken(accessToken)
                 .idToken(idToken)
                 .tokenType(TokenType.bearer)
-                .expiresIn(Config.ACCESS_TOKEN_EXPIRE_TIME_SECONDS)
+                .expiresIn(Constant.ACCESS_TOKEN_EXPIRE_TIME_SECONDS)
                 .scope(strScopes)
                 .build();
     }
+
+    /**
+     * Unpack the information contained in the access token.
+     *
+     * @param token
+     *          Access token created by the Authorization Server.
+     * @return The information contained in the access token.
+     */
+    public AccessTokenIntrospectionResponse getAccessTokenInformation(String token) {
+
+        Claims claims;
+        try {
+            claims = getClaims(token);
+        } catch (JwtException e) {
+            return AccessTokenIntrospectionResponse
+                    .builder()
+                    .active(false)
+                    .build();
+        }
+
+        return AccessTokenIntrospectionResponse
+                .builder()
+                .active(true)
+                .scope(claims.get("scope", String.class))
+                .clientId(claims.get("client_id", String.class))
+                .username(claims.getSubject())
+                .exp(claims.getExpiration().getTime())
+                .build();
+    }
+
+    /**
+     * Parse the claims in the <code>accessToken</code>.
+     *
+     * @param accessToken
+     *          JWT.
+     * @return The claims contained in the <code>accessToken</code>.
+     */
+    public Claims getClaims(String accessToken) {
+        return Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(accessToken).getBody();
+    }
+
+    /**
+     * Parse the scopes contained in the <code>accessToken</code> and convet them to a list.
+     *
+     * @param accessToken
+     *          JWT.
+     * @return List of scopes contained in the <code>accessToken</code>.
+     */
+    public List<Scope> getScopes(String accessToken) {
+        Claims claims = getClaims(accessToken);
+        String strScopes = claims.get("scope", String.class);
+
+        return stringToScopeListConverter.convert(strScopes);
+    }
+
 }

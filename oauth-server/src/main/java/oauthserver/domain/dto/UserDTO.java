@@ -8,33 +8,22 @@ import lombok.Setter;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 
-
 /**
- * Client information to create a new record.
+ * User information to create a new record.
  */
 @AllArgsConstructor
 @Getter
 @Setter
-public class ClientDTO {
-    @JsonProperty("client_id")
+public class UserDTO {
     @NotBlank
     @NotNull
-    private String clientId;
+    private String username;
 
     @NotBlank
     @NotNull
-    private String secret;
+    private String password;
 
     @NotBlank
     @NotNull
     private String name;
-
-    @NotBlank
-    @NotNull
-    private String description;
-
-    @JsonProperty("redirect_uri")
-    @NotBlank
-    @NotNull
-    private String redirectUri;
 }

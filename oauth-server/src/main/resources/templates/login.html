@@ -10,9 +10,6 @@
 <body>
 <div class="container">
     <h2 class="form-signin-heading">Login</h2>
-    <div th:if="${error}" class="alert alert-danger">
-        Invalid username and password.
-    </div>
     <form class="form-signin" method="POST" th:action="@{/login}">
         <p>
             <label for="username" class="sr-only">Username</label>

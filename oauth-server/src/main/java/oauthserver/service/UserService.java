@@ -24,8 +24,8 @@ public class UserService {
         return this.userRepository.findByUsername(username).orElseThrow(UserNotFoundException::new);
     }
 
-    public boolean validateCredentials(UserCredentials userCredentials) throws UserNotFoundException {
-        User user = this.getUser(userCredentials.getUsername());
-        return passwordEncoder.matches(userCredentials.getPassword(), user.getHashedPassword());
+    public boolean validateCredentials(String username, String password) throws UserNotFoundException {
+        User user = this.getUser(username);
+        return passwordEncoder.matches(password, user.getHashedPassword());
     }
 }

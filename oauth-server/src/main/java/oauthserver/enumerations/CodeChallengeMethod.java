@@ -8,7 +8,7 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum CodeChallengeMethod {
-    sha256("sha256", Hashing.sha256());
+    s256("sha256", Hashing.sha256());
 
     private String hashFunctionName;
     private HashFunction hashFunction;

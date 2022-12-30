@@ -4,23 +4,18 @@ import io.swagger.v3.oas.annotations.Operation;
 import lombok.AllArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import oauthserver.configuration.Config;
-import oauthserver.domain.dto.AccessTokenInfoResponse;
+import oauthserver.configuration.Constant;
+import oauthserver.domain.dto.*;
 import oauthserver.enumerations.*;
 import oauthserver.domain.model.Client;
 import oauthserver.domain.model.User;
-import oauthserver.domain.dto.AccessTokenResponse;
-import oauthserver.domain.dto.ClientDTO;
 import oauthserver.domain.model.OAuthFlowSession;
-import oauthserver.domain.dto.UserCredentials;
 import oauthserver.service.*;
 import oauthserver.service.exceptions.ClientNotFoundException;
 import oauthserver.service.exceptions.OAuthFlowCacheRecordNotFoundException;
 import oauthserver.service.exceptions.UserNotFoundException;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.ui.ModelMap;
@@ -100,7 +95,7 @@ public class OAuthController {
         String flowId = this.oAuthService.addFlowCookie(response);
 
         // Save the information associated to this flow
-        String authCode = RandomStringUtils.random(Config.AUTH_CODE_LENGTH, true, true);
+        String authCode = RandomStringUtils.random(Constant.AUTH_CODE_LENGTH, true, true);
         OAuthFlowSession oauthFlowSession = OAuthFlowSession
                 .builder()
                 .flowCookie(flowId)
@@ -117,23 +112,27 @@ public class OAuthController {
         return ViewPage.LOGIN_PAGE.getName();
     }
 
+    @Operation(summary = "Register new user")
     @PostMapping("/signup")
     public String registerUser(
-            @ModelAttribute UserCredentials userCredentials
+            @ModelAttribute UserDTO userDTO
     ) {
+        log.info("Register new user");
         this.userService.createUser(
-                User.builder().username(userCredentials.getUsername()).build(),
-                userCredentials.getPassword()
+                User.builder().username(userDTO.getUsername()).name(userDTO.getName()).build(),
+                userDTO.getPassword()
         );
+        log.info("Render login page");
         return ViewPage.LOGIN_PAGE.getName();
     }
 
+    @Operation(summary = "Log in the user")
     @PostMapping("/login")
     @SneakyThrows
     public ModelAndView performLogin(
             @ModelAttribute UserCredentials userCredentials,
             ModelMap model,
-            @CookieValue(value = Config.FLOW_ID_COOKIE, defaultValue = "") String flowCookie
+            @CookieValue(value = Constant.FLOW_ID_COOKIE, defaultValue = "") String flowCookie
     ) {
         log.info("The user: {} is trying to login", userCredentials.getUsername());
 
@@ -150,7 +149,10 @@ public class OAuthController {
         // Check the user's credentials
         boolean areCredentialsValid = false;
         try {
-            areCredentialsValid = this.userService.validateCredentials(userCredentials);
+            areCredentialsValid = this.userService.validateCredentials(
+                    userCredentials.getUsername(),
+                    userCredentials.getPassword()
+            );
         } catch (UserNotFoundException e) {
             log.info("The user: {} doesn't exist", userCredentials.getUsername());
             return new ModelAndView(ViewPage.SIGNUP_PAGE.getName(), model);
@@ -180,64 +182,81 @@ public class OAuthController {
         oAuthFlowSession.setUser(this.userService.getUser(userCredentials.getUsername()));
         this.oauthFlowSessionService.saveFlowRecord(oAuthFlowSession);
 
-        // Redirect user to the client
+        log.info("Redirect user to the client uri");
         String redirectUri = this.oAuthService.buildRedirectUri(oAuthFlowSession);
         return new ModelAndView("redirect:" + redirectUri, model);
     }
 
+    @Operation(summary = "Retrieve access token with the authorization code")
     @SneakyThrows
     @PostMapping("/token") @ResponseBody
     public AccessTokenResponse getToken(
             @RequestParam("grant_type") GrantType grantType,
             @RequestParam String code,
             @RequestParam("code_verifier") String codeVerifier,
-            @RequestParam("client_id") String clientId,
-            @RequestParam("client_secret") String clientSecret
+            Principal client
     ) {
-        log.info("The client: {} is trying to get a token", clientId);
+        log.info("The client: {} is trying to get a token", client.getName());
 
-        // Validate the client's credentials
-        boolean areCredentialsValid = false;
+        OAuthFlowSession oAuthFlowSession;
         try {
-            areCredentialsValid = this.clientService.validateCredentials(clientId, clientSecret);
-        } catch (ClientNotFoundException e) {
-            log.info("The client: {} doesn't exist", clientId);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Client doesn't exist");
-        }
-        if(!areCredentialsValid) {
-            log.info("Invalid credentials");
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
-        }
-
-        // Validate PCKE
-        boolean isChallengeValid = false;
-        try {
-            isChallengeValid = this.oAuthService.validatePckeSession(codeVerifier, code);
+            oAuthFlowSession = this.oauthFlowSessionService.getFlowRecordByAuthCode(code);
         } catch (OAuthFlowCacheRecordNotFoundException e) {
             log.info("Auth code doesn't exist");
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid code");
         }
+
+        // The code can be used only once
+        if(oAuthFlowSession.isCodeAlreadyUsed()) {
+            log.info("Authorization code already used");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Authorization code already used");
+        }
+        oAuthFlowSession.setCodeAlreadyUsed(true);
+        this.oauthFlowSessionService.saveFlowRecord(oAuthFlowSession);
+
+        // Check if the client asking for token is the one who started the flow
+        if(!client.getName().equals(oAuthFlowSession.getClient().getId())) {
+            log.info("Client is trying to use an authorization code from another client");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Authorization code already used");
+        }
+
+        log.info("Validate PCKE");
+        boolean isChallengeValid = this.oAuthService.validatePckeSession(codeVerifier, oAuthFlowSession);
         if(!isChallengeValid) {
-            log.info("PCKE failed");
+            log.info("Code verifier does not match the code challenge");
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PCKE challenge failed");
         }
 
-        log.info("Generating response");
-        // Load the auth flow and return access token response
-        OAuthFlowSession oAuthFlowSession = this.oauthFlowSessionService.getFlowRecordByAuthCode(code);
+        log.info("Responding with token");
         return this.oAuthService.buildAccessTokenResponse(oAuthFlowSession);
     }
 
-    @SneakyThrows
-    @PostMapping("/token_info")
-    public AccessTokenInfoResponse getAccessTokenInfo(
-            @RequestParam("token") String accessToken,
-            Principal principal
+    @Operation(summary = "Information about the access token and its validity")
+    @PostMapping("/token_info") @ResponseBody
+    public AccessTokenIntrospectionResponse tokenIntrospection(
+            @RequestParam String token,
+            Principal client
     ) {
-        // TODO
-        Client client = clientService.getClient(principal.getName());
 
-        return new AccessTokenInfoResponse();
+        AccessTokenIntrospectionResponse accessTokenIntrospectionResponse = this.oAuthService.getAccessTokenInformation(token);
+        if(!accessTokenIntrospectionResponse.getClientId().equals(client.getName())) {
+            log.info("The client in the token doesn't match the one requesting information");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "The client in the token doesn't match the one requesting information"
+            );
+        }
+
+        log.info("Responding with information about the access token");
+        return this.oAuthService.getAccessTokenInformation(token);
+    }
+
+    @Operation(summary = "Retrieve user information")
+    @GetMapping("/user_info") @ResponseBody
+    public UserInfoResponse getUserInfo(HttpServletRequest request) {
+        String accessToken = request.getHeader(Constant.AUTHORIZATION_HEADER).substring(Constant.BEARER_PREFIX.length());
+        log.info("Responding with user information");
+        return this.oAuthService.getUserInfo(accessToken);
     }
 
     @Operation(summary = "Generate a code challenge by hashing the code verifier")
@@ -246,6 +265,12 @@ public class OAuthController {
             @RequestParam("code_verifier") @Size(min = 43, max = 128) String codeVerifier,
             @RequestParam("code_challenge_method") CodeChallengeMethod codeChallengeMethod
     ) {
+        log.info("Generate code challenge");
         return this.oAuthService.generateCodeChallenge(codeVerifier, codeChallengeMethod);
+    }
+
+    @GetMapping("/homepage")
+    public String getHomepage() {
+        return "homepage";
     }
 }

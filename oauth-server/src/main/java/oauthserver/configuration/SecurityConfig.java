@@ -1,49 +1,43 @@
 package oauthserver.configuration;
 
 import io.jsonwebtoken.security.Keys;
+import oauthserver.enumerations.Role;
+import oauthserver.enumerations.Scope;
+import oauthserver.service.TokenService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.convert.converter.Converter;
-import org.springframework.format.FormatterRegistry;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
-import java.util.Arrays;
-import java.util.List;
 
 @Configuration
 @EnableWebSecurity
-public class Config {
-
-    public static final String ISSUER_NAME = "OAuth Server";
-    public static final String FLOW_ID_COOKIE = "flow_id";
-    public static final Integer FLOW_ID_COOKIE_EXPIRE_TIME_SECONDS = 300;
-    public static final Integer AUTH_CODE_LENGTH = 30;
-
-    public static final Integer ACCESS_TOKEN_EXPIRE_TIME_SECONDS = 600;
-    public static final Integer ID_TOKEN_EXPIRE_TIME_SECONDS = 600;
+public class SecurityConfig {
 
     @Value("${secret_key}")
     private String secretKey;
 
-    public String getSecretKey() { return this.secretKey; }
-
-    @Bean
-    public InMemoryUserDetailsManager userDetailsService(PasswordEncoder passwordEncoder) {
-        return new InMemoryUserDetailsManager();
-    }
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        TokenService tokenService = new TokenService(this.jwtSecretSigningKey(), new StringToScopeListConverter());
+
         http.csrf().disable()
-                .authorizeRequests()
+                .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.ALWAYS)
+                .and().addFilterAfter(new AccessTokenValidatorFilter(tokenService), BasicAuthenticationFilter.class)
+                .authorizeHttpRequests()
+                    .antMatchers("/token", "/token_info").hasRole(Role.CLIENT.name())
+                    .antMatchers("/user_info").hasAuthority(Scope.openid.name())
                     .anyRequest().permitAll()
+                .and().httpBasic()
                 .and().formLogin().disable();
         return http.build();
 
